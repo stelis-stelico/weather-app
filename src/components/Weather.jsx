@@ -1,106 +1,254 @@
 import { useState, useEffect, useRef } from 'react'
 import search_icon from '../Assets/search.png'
-import clear_icon from '../Assets/clear.png'
-import cloud_icon from '../Assets/cloud.png'
-import drizzle_icon from '../Assets/drizzle.png'
-import humidity_icon from '../Assets/humidity.png'
-import rain_icon from '../Assets/rain.png'
-import snow_icon from '../Assets/snow.png'
-import wind_icon from '../Assets/wind.png'
-import '../weather.css'
-
 
 const Weather = () => {
-
   const inputRef = useRef()
-  const [weatherData, setweatherData] = useState(false)
+  const [weatherData, setWeatherData] = useState(null)
+  const [forecast, setForecast] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  const allIcons = {
-    "01d": clear_icon,
-    "01n": clear_icon,
-    "02d": cloud_icon,
-    "02n": cloud_icon,
-    "03d": cloud_icon,
-    "03n": cloud_icon,
-    "04n": drizzle_icon,
-    "04d": drizzle_icon,
-    "09d": rain_icon,
-    "09n": rain_icon,
-    "10d": rain_icon,
-    "10n": rain_icon,
-    "13d": snow_icon,
-    "13n": snow_icon
-  }
+  const API_KEY = import.meta.env.VITE_WEATHERAPI_KEY
+  const BASE_URL = 'https://api.weatherapi.com/v1'
 
-  const search = async (city) => {
-    if (city === "") {
-      alert("Pls Enter City Name")
-      return
-    }
+  //  Dynamic background
+const getBackground = () => {
+  if (!weatherData) return 'from-slate-900 via-slate-800 to-slate-700'
+
+  const text = weatherData.description.toLowerCase()
+  const isNight = weatherData.isDay === 0
+
+  if (isNight) return 'from-slate-900 via-slate-800 to-slate-700'
+  if (text.includes('rain')) return 'from-slate-700 to-slate-500'
+  if (text.includes('cloud')) return 'from-slate-600 to-slate-400'
+  if (text.includes('clear') || text.includes('sunny'))
+    return 'from-sky-500 to-blue-400'
+
+  return 'from-slate-800 to-slate-600'
+}
+
+  //  Fetch weather by coordinates
+  const fetchByCoords = async (lat, lon) => {
+    setLoading(true)
+    setError('')
+
     try {
-      const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${import.meta.env.VITE_APP_ID}`
-      const res = await fetch(url)
+      const res = await fetch(
+        `${BASE_URL}/forecast.json?key=${API_KEY}&q=${lat},${lon}&days=3&aqi=no&alerts=no`
+      )
+
+      if (!res.ok) throw new Error()
+
       const data = await res.json()
 
-      if(!res.ok){
-        alert("Pls enter a valid city")
-        return
-      }
+      const icon = "https:" + data.current.condition.icon
 
-      const icon = allIcons[data.weather[0].icon] || clear_icon
-      setweatherData({
-        humidity: data.main.humidity,
-        windSpeed: Math.round(data.wind.speed * 3.6), // m/s → km/h
-        tempearture: Math.floor(data.main.temp),
-        location: data.name,
-        icon: icon
+      setWeatherData({
+        temperature: Math.round(data.current.temp_c),
+        location: `${data.location.name}, ${data.location.country}`,
+        description: data.current.condition.text,
+        icon,
+        humidity: data.current.humidity,
+        wind: Math.round(data.current.wind_kph),
+        feelslike: Math.round(data.current.feelslike_c),
+        time: data.location.localtime,
+        isDay: data.current.is_day,
       })
-      
-    } catch (error) {
-      setweatherData(false)
-      console.error("Error in fecthing weather data")
+
+      setForecast(
+        data.forecast.forecastday.map((day) => ({
+          date: day.date,
+          icon: "https:" + day.day.condition.icon,
+          condition: day.day.condition.text,
+          min: Math.round(day.day.mintemp_c),
+          max: Math.round(day.day.maxtemp_c),
+        }))
+      )
+    } catch (err) {
+      setError('Unable to fetch location weather')
+    } finally {
+      setLoading(false)
     }
   }
 
-  useEffect(() =>{
-    search("")
+  //  Search by city
+  const handleSearch = async (city) => {
+    if (!city) {
+      setError('Enter a city name')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const res = await fetch(
+        `${BASE_URL}/forecast.json?key=${API_KEY}&q=${city}&days=3&aqi=no&alerts=no`
+      )
+
+      if (!res.ok) throw new Error()
+
+      const data = await res.json()
+
+      const icon = "https:" + data.current.condition.icon
+
+      setWeatherData({
+        temperature: Math.round(data.current.temp_c),
+        location: `${data.location.name}, ${data.location.country}`,
+        description: data.current.condition.text,
+        icon,
+        humidity: data.current.humidity,
+        wind: Math.round(data.current.wind_kph),
+        feelslike: Math.round(data.current.feelslike_c),
+        time: data.location.localtime,
+        isDay: data.current.is_day,
+      })
+
+      setForecast(
+        data.forecast.forecastday.map((day) => ({
+          date: day.date,
+          icon: "https:" + day.day.condition.icon,
+          condition: day.day.condition.text,
+          min: Math.round(day.day.mintemp_c),
+          max: Math.round(day.day.maxtemp_c),
+        }))
+      )
+    } catch (err) {
+      setError('City not found')
+      setWeatherData(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  //  Auto detect location
+  const detectLocation = () => {
+    if (!navigator.geolocation) {
+      handleSearch('Lagos')
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords
+        fetchByCoords(latitude, longitude)
+      },
+      () => {
+        // ❌ Permission denied → fallback
+        handleSearch('Lagos')
+      }
+    )
+  }
+
+  useEffect(() => {
+    detectLocation()
   }, [])
 
-
-
-
   return (
+    <div
+      className={`min-h-screen flex items-center justify-center bg-gradient-to-br ${getBackground()} transition-all duration-500`}
+    >
+      <div className="w-full max-w-sm mx-auto bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-2xl text-white">
 
-        <div className='weather'>
-            <div className='search-bar'>
-                <input ref={inputRef} type="text" placeholder="Search" />
-                <img src={search_icon} alt="" onClick={()=>search(inputRef.current.value)} />
+        {/* 🔍 Search */}
+        <div className="flex items-center mb-6 bg-white/30 rounded-full px-3 py-2">
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Search city..."
+            className="flex-1 bg-transparent outline-none text-white placeholder-white/70 px-2"
+            onKeyDown={(e) =>
+              e.key === 'Enter' && handleSearch(inputRef.current.value)
+            }
+          />
+          <img
+            src={search_icon}
+            alt="search"
+            className="w-5 cursor-pointer"
+            onClick={() => handleSearch(inputRef.current.value)}
+          />
+        </div>
+
+        {/* ❌ Error */}
+        {error && (
+          <p className="text-red-300 text-center mb-4">{error}</p>
+        )}
+
+        {/*  Loading */}
+        {loading && (
+          <p className="text-center animate-pulse">Getting your weather...</p>
+        )}
+
+        {/*  Weather */}
+        {weatherData && !loading && (
+          <>
+            <div className="text-center">
+              <h2 className="text-xl font-semibold">
+                {weatherData.location}
+              </h2>
+
+              <img
+                src={weatherData.icon}
+                alt=""
+                className="w-24 mx-auto"
+              />
+
+              <h1 className="text-5xl font-bold">
+                {weatherData.temperature}°C
+              </h1>
+
+              <p className="capitalize text-lg">
+                {weatherData.description}
+              </p>
+
+              <p className="text-sm text-white/70">
+                Feels like {weatherData.feelslike}°C
+              </p>
             </div>
-            <img src={weatherData.icon} alt="" className='weather-icon'/>
-            <p className='temperature'>{weatherData.tempearture}°C</p>
-            <p className='location'>{weatherData.location}</p>
 
-            <div className="weather-data">
-
-              <div className="col">
-                <img src={humidity_icon} alt="" />
-                <div>
-                  <p>{weatherData.humidity} %</p>
-                  <span>Humidity</span>
-                </div>
+            {/* Details */}
+            <div className="flex justify-between mt-6 text-sm">
+              <div>
+                <p className="opacity-70">Humidity</p>
+                <p className="font-semibold">{weatherData.humidity}%</p>
               </div>
-
-              <div className="col">
-                <img src={wind_icon} alt="" />
-                <div>
-                  <p>{weatherData.windSpeed} Km/h</p>
-                  <span>Wind Speed</span>
-                </div>
+              <div>
+                <p className="opacity-70">Wind</p>
+                <p className="font-semibold">{weatherData.wind} km/h</p>
               </div>
-
             </div>
+
+            {/*  Forecast */}
+            <div className="mt-6">
+              <h3 className="mb-3 font-semibold">3-Day Forecast</h3>
+              <div className="flex justify-between">
+                {forecast.map((day) => (
+                  <div
+                    key={day.date}
+                    className="text-center bg-white/10 border border-white/10 rounded-xl p-3 w-[30%]"
+                  >
+                    <p className="text-xs">
+                      {new Date(day.date).toLocaleDateString('en-US', {
+                        weekday: 'short',
+                      })}
+                    </p>
+
+                    <img
+                      src={day.icon}
+                      alt=""
+                      className="w-10 mx-auto"
+                    />
+
+                    <p className="text-sm">{day.max}°</p>
+                    <p className="text-xs opacity-70">{day.min}°</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
-
+    </div>
   )
 }
 
